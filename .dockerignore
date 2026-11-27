@@ -1,0 +1,14 @@
+.git
+.gitignore
+.dockerignore
+Dockerfile
+railway.json
+tests
+server-setup
+public
+*.md
+.env
+.env.*
+**/config.local.php
+*.log
+*.bak

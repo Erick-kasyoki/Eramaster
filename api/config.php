@@ -12,6 +12,30 @@ ini_set('display_errors', '0');
 ini_set('log_errors', '1');
 
 
+/* ---------------- environment variables (Railway / Docker) ----------------
+   On a host such as Railway, settings come from environment variables instead of the private config file.
+   Order of precedence:  private config file  >  environment variable  >  built-in default.
+   Railway's PostgreSQL plugin provides DATABASE_URL (or PGHOST/PGPORT/PGDATABASE/PGUSER/PGPASSWORD). */
+function envv(string $name, ?string $default = null): ?string {
+    $v = getenv($name);
+    return ($v === false || $v === '') ? $default : $v;
+}
+function envBool(string $name, bool $default): bool {
+    $v = envv($name);
+    return $v === null ? $default : in_array(strtolower($v), ['1', 'true', 'yes', 'on'], true);
+}
+(function () {
+    $url = envv('DATABASE_URL') ?? envv('DATABASE_PRIVATE_URL');
+    $p = $url ? parse_url($url) : false;
+    if ($p && !empty($p['host'])) {
+        defined('DB_HOST') || define('DB_HOST', $p['host']);
+        defined('DB_PORT') || define('DB_PORT', (string)($p['port'] ?? 5432));
+        defined('DB_NAME') || define('DB_NAME', ltrim(rawurldecode($p['path'] ?? ''), '/'));
+        defined('DB_USER') || define('DB_USER', rawurldecode($p['user'] ?? ''));
+        defined('DB_PASS') || define('DB_PASS', rawurldecode($p['pass'] ?? ''));
+    }
+})();
+
 /* ---------------- private settings (passwords & keys live OUTSIDE the web folder) ----------------
    Database password, e-mail password and social-login secrets are NOT stored in this file any more.
    Put them in  <XAMPP folder>/eramaster-private/config.php  (e.g. C:\\xampp\\eramaster-private\\config.php)
@@ -35,17 +59,17 @@ header('Cache-Control: no-store');
 /* ---------------- app settings ---------------- */
 // true  = unexpected server errors include their message in the JSON (handy while setting up).
 // false = show a generic message (recommended in production; details stay in the PHP error log).
-defined('APP_DEBUG') || define('APP_DEBUG', false);
+defined('APP_DEBUG') || define('APP_DEBUG', envBool('APP_DEBUG', false));
 // true  = anyone who can open the page may create a least-privilege "Staff" account.
 // false = only an administrator can create staff accounts (User Management > Add user).
 // The very first account (the Super Administrator) can always be created either way.
 // Students and parents never use this flag — they self-verify against their own
 // admission/guardian record via signup_student / signup_parent instead (see index.php).
-defined('ALLOW_SELF_SIGNUP') || define('ALLOW_SELF_SIGNUP', false);
+defined('ALLOW_SELF_SIGNUP') || define('ALLOW_SELF_SIGNUP', envBool('ALLOW_SELF_SIGNUP', false));
 defined('SESSION_IDLE_SECONDS') || define('SESSION_IDLE_SECONDS', 7200);   // log out after 2 hours of inactivity
 defined('MAX_LOGIN_FAILURES') || define('MAX_LOGIN_FAILURES', 5);        // failed logins allowed per 15 minutes (per email or per IP)
 defined('SESSION_ABSOLUTE_SECONDS') || define('SESSION_ABSOLUTE_SECONDS', 43200); // hard stop: sign in again after 12 hours, however active
-defined('BEHIND_HTTPS_PROXY') || define('BEHIND_HTTPS_PROXY', false);   // true only if a trusted reverse proxy terminates HTTPS and sets X-Forwarded-Proto
+defined('BEHIND_HTTPS_PROXY') || define('BEHIND_HTTPS_PROXY', envBool('BEHIND_HTTPS_PROXY', false));   // true only if a trusted reverse proxy terminates HTTPS and sets X-Forwarded-Proto
 
 defined('RESET_OTP_TTL_MINUTES') || define('RESET_OTP_TTL_MINUTES', 30); // how long an admin-issued reset OTP stays valid
 
@@ -58,18 +82,18 @@ defined('RESET_OTP_TTL_MINUTES') || define('RESET_OTP_TTL_MINUTES', 30); // how 
 //     <your site>/api/social.php        e.g. https://school.example.com/api/social.php
 //                                       or   http://localhost/helmers/api/social.php
 // (SOCIAL_REDIRECT_URI below overrides the automatic guess — set it if you are behind a proxy.)
-defined('SOCIAL_GOOGLE_ID') || define('SOCIAL_GOOGLE_ID', '');
-defined('SOCIAL_GOOGLE_SECRET') || define('SOCIAL_GOOGLE_SECRET', '');
-defined('SOCIAL_FACEBOOK_ID') || define('SOCIAL_FACEBOOK_ID', '');
-defined('SOCIAL_FACEBOOK_SECRET') || define('SOCIAL_FACEBOOK_SECRET', '');
-defined('SOCIAL_GITHUB_ID') || define('SOCIAL_GITHUB_ID', '');
-defined('SOCIAL_GITHUB_SECRET') || define('SOCIAL_GITHUB_SECRET', '');
-defined('SOCIAL_LINKEDIN_ID') || define('SOCIAL_LINKEDIN_ID', '');
-defined('SOCIAL_LINKEDIN_SECRET') || define('SOCIAL_LINKEDIN_SECRET', '');
-defined('SOCIAL_REDIRECT_URI') || define('SOCIAL_REDIRECT_URI', '');
+defined('SOCIAL_GOOGLE_ID') || define('SOCIAL_GOOGLE_ID', envv('SOCIAL_GOOGLE_ID', ''));
+defined('SOCIAL_GOOGLE_SECRET') || define('SOCIAL_GOOGLE_SECRET', envv('SOCIAL_GOOGLE_SECRET', ''));
+defined('SOCIAL_FACEBOOK_ID') || define('SOCIAL_FACEBOOK_ID', envv('SOCIAL_FACEBOOK_ID', ''));
+defined('SOCIAL_FACEBOOK_SECRET') || define('SOCIAL_FACEBOOK_SECRET', envv('SOCIAL_FACEBOOK_SECRET', ''));
+defined('SOCIAL_GITHUB_ID') || define('SOCIAL_GITHUB_ID', envv('SOCIAL_GITHUB_ID', ''));
+defined('SOCIAL_GITHUB_SECRET') || define('SOCIAL_GITHUB_SECRET', envv('SOCIAL_GITHUB_SECRET', ''));
+defined('SOCIAL_LINKEDIN_ID') || define('SOCIAL_LINKEDIN_ID', envv('SOCIAL_LINKEDIN_ID', ''));
+defined('SOCIAL_LINKEDIN_SECRET') || define('SOCIAL_LINKEDIN_SECRET', envv('SOCIAL_LINKEDIN_SECRET', ''));
+defined('SOCIAL_REDIRECT_URI') || define('SOCIAL_REDIRECT_URI', envv('SOCIAL_REDIRECT_URI', ''));
 // XAMPP on Windows often has no CA bundle, which makes the HTTPS calls to the providers fail
 // ("SSL certificate problem"). Best fix: set curl.cainfo in php.ini. Quick local-only fix: false.
-defined('SOCIAL_VERIFY_SSL') || define('SOCIAL_VERIFY_SSL', true);
+defined('SOCIAL_VERIFY_SSL') || define('SOCIAL_VERIFY_SSL', envBool('SOCIAL_VERIFY_SSL', true));
 
 
 require __DIR__ . '/rbac.php';
@@ -152,11 +176,11 @@ function sessionWasRevoked(PDO $pdo): bool {
 }
 
 /* ---------------- database ---------------- */
-defined('DB_HOST') || define('DB_HOST', '127.0.0.1');
-defined('DB_PORT') || define('DB_PORT', '5432');
-defined('DB_NAME') || define('DB_NAME', 'greenhill_academy');
-defined('DB_USER') || define('DB_USER', 'eramaster_app');
-defined('DB_PASS') || define('DB_PASS', '352535');   // set in the private config file, never here
+defined('DB_HOST') || define('DB_HOST', envv('PGHOST', '127.0.0.1'));
+defined('DB_PORT') || define('DB_PORT', envv('PGPORT', '5432'));
+defined('DB_NAME') || define('DB_NAME', envv('PGDATABASE', 'greenhill_academy'));
+defined('DB_USER') || define('DB_USER', envv('PGUSER', 'eramaster_app'));
+defined('DB_PASS') || define('DB_PASS', envv('PGPASSWORD', ''));   // from DATABASE_URL / PGPASSWORD / the private config file - never hard-code it here
 
 set_exception_handler(function ($e) {
     error_log('EraMaster: ' . $e);
